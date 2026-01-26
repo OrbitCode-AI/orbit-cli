@@ -1,0 +1,29 @@
+{
+  "name": "orbit",
+  "version": "0.1.0",
+  "description": "CLI for running OrbitCode examples",
+  "type": "module",
+  "bin": {
+    "orbit": "./dist/bin/orbit.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@preact/preset-vite": "^2.9.4",
+    "preact": "^10.27.2",
+    "vite": "^6.3.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "typescript": "^5.8.3"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
