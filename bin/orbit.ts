@@ -57,7 +57,7 @@ async function clone(name: string | undefined) {
 
   try {
     execSync(`git clone ${repoUrl}`, { stdio: "inherit" });
-    console.log(`\nDone! Run:\n  cd ${name}\n  npx orbit run`);
+    console.log(`\nCloned into ${name}\n\nRun:\n  cd ${name}\n  orbit run`);
   } catch {
     console.error(`Failed to clone ${repoUrl}`);
     process.exit(1);
