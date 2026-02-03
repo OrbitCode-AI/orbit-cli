@@ -2,6 +2,7 @@ import { createServer } from "vite";
 import preact from "@preact/preset-vite";
 import { orbitcodePlugin } from "./orbitcode-plugin.js";
 import { virtualHtmlPlugin } from "./virtual-html.js";
+import { exec } from "node:child_process";
 
 export async function startServer(root: string) {
   const server = await createServer({
@@ -28,11 +29,13 @@ export async function startServer(root: string) {
         "@prefresh/utils",
       ],
     },
-    server: {
-      open: true,
-    },
   });
 
   await server.listen();
   server.printUrls();
+
+  const url = server.resolvedUrls?.local[0];
+  if (url) {
+    exec(`open "${url}"`);
+  }
 }
