@@ -23,7 +23,7 @@ function loadConfig(root: string): OrbitConfig {
   return {};
 }
 
-function generateHtml(config: OrbitConfig): string {
+function generateHtml(config: OrbitConfig, importMapJson: string): string {
   const title = config.name || "OrbitCode App";
   const icon = config.icon || "🪐";
   const bgColor = config.defaultTheme === "light" ? "#ffffff" : "#000000";
@@ -34,6 +34,7 @@ function generateHtml(config: OrbitConfig): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title}</title>
+  <script type="importmap">${importMapJson}</script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text x='50' y='75' font-size='70' text-anchor='middle'>${icon}</text></svg>">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -53,8 +54,27 @@ import App from '/App.tsx';
 render(h(App), document.getElementById('root'));
 `;
 
-export function virtualHtmlPlugin(): Plugin {
+// Shim modules that re-export from preact via /@fs/ paths
+const SHIM_MAP: Record<string, (p: Record<string, string>) => string> = {
+  "react.js": (p) => `import * as mod from '/@fs/${p["preact/compat"]}'; export default mod; export * from '/@fs/${p["preact/compat"]}';`,
+  "react-dom.js": (p) => `import * as mod from '/@fs/${p["preact/compat"]}'; export default mod; export * from '/@fs/${p["preact/compat"]}';`,
+  "react-dom-client.js": (p) => `import * as mod from '/@fs/${p["preact/compat"]}'; export default mod; export * from '/@fs/${p["preact/compat"]}';`,
+  "jsx-runtime.js": (p) => `export * from '/@fs/${p["preact/jsx-runtime"]}';`,
+  "jsx-dev-runtime.js": (p) => `export * from '/@fs/${p["preact/jsx-dev-runtime"]}';`,
+};
+
+export function virtualHtmlPlugin(preactPaths: Record<string, string>): Plugin {
   let root: string;
+
+  const importMap = JSON.stringify({
+    imports: {
+      "react": "/__orbit-shims/react.js",
+      "react-dom": "/__orbit-shims/react-dom.js",
+      "react-dom/client": "/__orbit-shims/react-dom-client.js",
+      "react/jsx-runtime": "/__orbit-shims/jsx-runtime.js",
+      "react/jsx-dev-runtime": "/__orbit-shims/jsx-dev-runtime.js",
+    },
+  });
 
   return {
     name: "virtual-html",
@@ -80,13 +100,24 @@ export function virtualHtmlPlugin(): Plugin {
 
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
+        // Serve import map shim modules
+        if (req.url?.startsWith("/__orbit-shims/")) {
+          const name = req.url.slice("/__orbit-shims/".length).split("?")[0];
+          const shimFn = SHIM_MAP[name];
+          if (shimFn) {
+            res.setHeader("Content-Type", "application/javascript");
+            res.end(shimFn(preactPaths));
+            return;
+          }
+        }
+
         // Serve virtual index.html if none exists
         if (req.url === "/" || req.url === "/index.html") {
           const realHtml = path.join(root, "index.html");
           if (!existsSync(realHtml)) {
             const config = loadConfig(root);
             res.setHeader("Content-Type", "text/html");
-            res.end(generateHtml(config));
+            res.end(generateHtml(config, importMap));
             return;
           }
         }

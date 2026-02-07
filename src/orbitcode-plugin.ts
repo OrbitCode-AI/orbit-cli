@@ -1,4 +1,11 @@
 import type { Plugin } from "vite";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const cliRoot = path.resolve(__dirname, "../..");
+const cliPackageJson = path.join(cliRoot, "package.json");
 
 const ORBITCODE_MODULE_ID = "orbitcode";
 const RESOLVED_ORBITCODE_ID = "\0orbitcode";
@@ -14,6 +21,8 @@ const KNOWN_MODULES = new Set([
   "preact/devtools",
   "react",
   "react-dom",
+  "react-dom/client",
+  "react-dom/test-utils",
   "react/jsx-runtime",
   "react/jsx-dev-runtime",
   "orbitcode",
@@ -127,21 +136,24 @@ export function orbitcodePlugin(): Plugin {
     name: "orbitcode",
     enforce: "pre",
 
-    resolveId(id) {
+    async resolveId(id, _importer, options) {
       // Handle the orbitcode virtual module
       if (id === ORBITCODE_MODULE_ID) {
         return RESOLVED_ORBITCODE_ID;
       }
 
-      // Skip known modules
+      // Resolve known modules from CLI's node_modules (not user project)
       if (KNOWN_MODULES.has(id)) {
-        return null;
+        const resolved = await this.resolve(id, cliPackageJson, { ...options, skipSelf: true });
+        return resolved ?? null;
       }
 
       // Redirect unknown bare imports to esm.sh
+      // Use ?external so esm.sh emits bare `react` specifiers that
+      // our import map intercepts (single Preact instance).
       if (isBareImport(id)) {
         return {
-          id: `https://esm.sh/${id}`,
+          id: `https://esm.sh/${id}?external=react,react-dom,react/jsx-runtime&target=es2022`,
           external: true,
         };
       }
