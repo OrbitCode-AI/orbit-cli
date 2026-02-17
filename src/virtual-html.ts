@@ -49,18 +49,20 @@ function generateHtml(config: OrbitConfig, importMapJson: string): string {
 }
 
 const VIRTUAL_ENTRY = `
-import { render, h } from 'preact';
+import 'preact/debug';
+import { render, createElement } from 'preact/compat';
 import App from '/App.tsx';
-render(h(App), document.getElementById('root'));
+render(createElement(App), document.getElementById('root'));
 `;
 
-// Shim modules that re-export from preact via /@fs/ paths
-const SHIM_MAP: Record<string, (p: Record<string, string>) => string> = {
-  "react.js": (p) => `import * as mod from '/@fs/${p["preact/compat"]}'; export default mod; export * from '/@fs/${p["preact/compat"]}';`,
-  "react-dom.js": (p) => `import * as mod from '/@fs/${p["preact/compat"]}'; export default mod; export * from '/@fs/${p["preact/compat"]}';`,
-  "react-dom-client.js": (p) => `import * as mod from '/@fs/${p["preact/compat"]}'; export default mod; export * from '/@fs/${p["preact/compat"]}';`,
-  "jsx-runtime.js": (p) => `export * from '/@fs/${p["preact/jsx-runtime"]}';`,
-  "jsx-dev-runtime.js": (p) => `export * from '/@fs/${p["preact/jsx-dev-runtime"]}';`,
+// Shim modules use bare specifiers so Vite resolves them through the
+// same alias/optimization pipeline as all other modules (single instance).
+const SHIM_MAP: Record<string, string> = {
+  "react.js": `import * as mod from 'preact/compat'; export default mod; export * from 'preact/compat';`,
+  "react-dom.js": `import * as mod from 'preact/compat'; export default mod; export * from 'preact/compat';`,
+  "react-dom-client.js": `import * as mod from 'preact/compat'; export default mod; export * from 'preact/compat';`,
+  "jsx-runtime.js": `export * from 'preact/jsx-runtime';`,
+  "jsx-dev-runtime.js": `export * from 'preact/jsx-dev-runtime';`,
 };
 
 export function virtualHtmlPlugin(preactPaths: Record<string, string>): Plugin {
@@ -88,6 +90,10 @@ export function virtualHtmlPlugin(preactPaths: Record<string, string>): Plugin {
       if (id === VIRTUAL_ENTRY_ID) {
         return RESOLVED_ENTRY_ID;
       }
+      // Shim modules resolve to themselves so load() can handle them
+      if (id.startsWith("/__orbit-shims/")) {
+        return id;
+      }
       return null;
     },
 
@@ -95,18 +101,24 @@ export function virtualHtmlPlugin(preactPaths: Record<string, string>): Plugin {
       if (id === RESOLVED_ENTRY_ID) {
         return VIRTUAL_ENTRY;
       }
+      // Return shim source with bare specifiers - Vite's transform
+      // pipeline resolves them through the same aliases/optimization
+      // as all other modules, ensuring a single preact instance.
+      if (id.startsWith("/__orbit-shims/")) {
+        const name = id.split("/").pop()!.split("?")[0];
+        return SHIM_MAP[name] ?? null;
+      }
       return null;
     },
 
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        // Serve import map shim modules
+      server.middlewares.use(async (req, res, next) => {
+        // Serve shims through Vite's transform pipeline
         if (req.url?.startsWith("/__orbit-shims/")) {
-          const name = req.url.slice("/__orbit-shims/".length).split("?")[0];
-          const shimFn = SHIM_MAP[name];
-          if (shimFn) {
+          const result = await server.transformRequest(req.url);
+          if (result) {
             res.setHeader("Content-Type", "application/javascript");
-            res.end(shimFn(preactPaths));
+            res.end(result.code);
             return;
           }
         }
