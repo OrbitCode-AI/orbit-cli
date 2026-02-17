@@ -85,8 +85,8 @@ export function useVar(name, defaultValue) {
   return [value, setter];
 }
 
-// useSet returns [items, { add, update, remove }, loading] for collection CRUD
-export function useSet(name) {
+// useList returns [items, { add, update, remove }, loading] for collection CRUD
+export function useList(name) {
   const [items, setItems] = useState(() => {
     const stored = getStoredValue(name, []);
     // Ensure each item has an id
@@ -129,6 +129,8 @@ export function useSet(name) {
 
   return [items, actions, loading];
 }
+
+export const useSet = useList;
 `;
 
 export function orbitcodePlugin(): Plugin {
