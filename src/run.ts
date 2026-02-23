@@ -6,7 +6,7 @@ import { exec } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,6 +22,41 @@ function resolveEsm(pkg: string): string {
   return path.join(pkgDir, pkgJson.module);
 }
 
+/** Scan CSS files at the project root for bare @import specifiers (npm packages). */
+function detectCssImports(root: string): string[] {
+  const imports = new Set<string>();
+  const importRe = /@import\s+["']([^./][^"']*)["']/g;
+  for (const file of readdirSync(root)) {
+    if (file.endsWith(".css")) {
+      const contents = readFileSync(path.join(root, file), "utf-8");
+      for (const match of contents.matchAll(importRe)) {
+        imports.add(match[1]);
+      }
+    }
+  }
+  return [...imports];
+}
+
+/** Resolve a CSS package's entry file from orbit-cli's node_modules. */
+function resolveCssEntry(pkg: string): string | null {
+  const pkgDir = path.join(cliRoot, "node_modules", pkg);
+  try {
+    const pkgJson = JSON.parse(readFileSync(path.join(pkgDir, "package.json"), "utf-8"));
+    // Check exports["."].style, then style field, then main
+    const entry =
+      pkgJson.exports?.["."]?.style ??
+      pkgJson.style ??
+      pkgJson.main;
+    if (entry) {
+      return path.join(pkgDir, entry);
+    }
+    // For packages like tailwindcss, the directory itself is enough
+    return pkgDir;
+  } catch {
+    return null;
+  }
+}
+
 export async function startServer(root: string) {
   const preactPaths = {
     "preact": resolveEsm("preact"),
@@ -33,16 +68,37 @@ export async function startServer(root: string) {
     "preact/devtools": resolveEsm("preact/devtools"),
   };
 
+  const plugins: import("vite").PluginOption[] = [
+    virtualHtmlPlugin(preactPaths),
+    orbitcodePlugin(),
+    preact({ reactAliasesEnabled: false }),
+  ];
+
+  // Auto-detect CSS dependencies and resolve them from orbit-cli's node_modules
+  const cssImports = detectCssImports(root);
+  const cssAliases: Record<string, string> = {};
+  const usesTailwind = cssImports.includes("tailwindcss");
+
+  for (const pkg of cssImports) {
+    const entry = resolveCssEntry(pkg);
+    if (entry) {
+      cssAliases[pkg] = entry;
+    }
+  }
+
+  if (usesTailwind) {
+    const tailwindcss = await import("@tailwindcss/vite");
+    plugins.push(tailwindcss.default());
+  }
+
   const server = await createServer({
     root,
-    plugins: [
-      virtualHtmlPlugin(preactPaths),
-      orbitcodePlugin(),
-      preact({ reactAliasesEnabled: false }),
-    ],
+    configFile: false,
+    plugins,
     resolve: {
       alias: {
         "@/": root + "/",
+        ...cssAliases,
         "react/jsx-runtime": preactPaths["preact/jsx-runtime"],
         "react/jsx-dev-runtime": preactPaths["preact/jsx-dev-runtime"],
         "react-dom/client": preactPaths["preact/compat"],
