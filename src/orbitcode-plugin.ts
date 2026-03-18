@@ -33,7 +33,7 @@ const KNOWN_MODULES = new Set([
 
 // Virtual orbitcode module implementation (localStorage-based)
 const ORBITCODE_SHIM = `
-import { useState, useEffect, useCallback, useMemo } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 
 function getStorageKey(name) {
   return 'orbitcode:' + name;
@@ -55,16 +55,11 @@ function setStoredValue(name, value) {
   } catch {}
 }
 
-function generateId() {
-  return Math.random().toString(36).slice(2, 11);
-}
-
-// useVar returns [value, setter] like useState, but persists to localStorage
+// useVar returns [value, setter, loading] like useState, but persists to localStorage
 export function useVar(name, defaultValue) {
   const [value, setValue] = useState(() => getStoredValue(name, defaultValue));
 
   useEffect(() => {
-    // Listen for changes from other tabs
     const handler = (e) => {
       if (e.key === getStorageKey(name)) {
         setValue(e.newValue ? JSON.parse(e.newValue) : defaultValue);
@@ -82,55 +77,127 @@ export function useVar(name, defaultValue) {
     });
   }, [name]);
 
-  return [value, setter];
+  return [value, setter, false];
 }
 
-// useList returns [items, { add, update, remove }, loading] for collection CRUD
+// useList returns [items, actions, loading] for ordered array CRUD
 export function useList(name) {
+  const arrRef = useRef(getStoredValue(name, []));
   const [items, setItems] = useState(() => {
-    const stored = getStoredValue(name, []);
-    // Ensure each item has an id
-    return stored.map(item => item.id ? item : { ...item, id: generateId() });
+    return arrRef.current.map((item, i) => item);
   });
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Listen for changes from other tabs
     const handler = (e) => {
       if (e.key === getStorageKey(name)) {
-        const newItems = e.newValue ? JSON.parse(e.newValue) : [];
-        setItems(newItems);
+        const newArr = e.newValue ? JSON.parse(e.newValue) : [];
+        arrRef.current = newArr;
+        setItems(newArr.map((item, i) => item));
       }
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);
   }, [name]);
 
-  const updateStorage = useCallback((newItems) => {
-    setItems(newItems);
-    setStoredValue(name, newItems);
-  }, [name]);
+  function persist(arr) {
+    arrRef.current = arr;
+    setStoredValue(name, arr);
+    setItems(arr.map((item, i) => item));
+  }
 
-  const actions = useMemo(() => ({
+  const actions = {
+    // Legacy API (backward compat)
     add: async (item) => {
-      const newItem = { ...item, id: generateId() };
-      updateStorage([...items, newItem]);
-      return newItem;
+      const arr = [...arrRef.current, item];
+      persist(arr);
+      return String(arr.length - 1);
     },
-    update: (id, updates) => {
-      updateStorage(items.map(item =>
-        item.id === id ? { ...item, ...updates } : item
-      ));
+    update: (id, item) => {
+      return actions.updateAt(parseInt(id, 10), item);
     },
     remove: (id) => {
-      updateStorage(items.filter(item => item.id !== id));
+      return actions.removeAt(parseInt(id, 10));
     },
-  }), [items, updateStorage]);
+    // New array API
+    push: async (item) => {
+      return actions.add(item);
+    },
+    pop: async () => {
+      const arr = [...arrRef.current];
+      if (arr.length === 0) return;
+      arr.pop();
+      persist(arr);
+    },
+    insertAt: async (index, item) => {
+      const arr = [...arrRef.current];
+      arr.splice(index, 0, item);
+      persist(arr);
+      return String(index);
+    },
+    removeAt: async (index) => {
+      const arr = [...arrRef.current];
+      if (index < 0 || index >= arr.length) return;
+      arr.splice(index, 1);
+      persist(arr);
+    },
+    updateAt: async (index, item) => {
+      const arr = [...arrRef.current];
+      if (index < 0 || index >= arr.length) return;
+      arr[index] = item;
+      persist(arr);
+    },
+    move: async (fromIndex, toIndex) => {
+      const arr = [...arrRef.current];
+      if (fromIndex < 0 || fromIndex >= arr.length) return;
+      if (toIndex < 0 || toIndex >= arr.length) return;
+      const [moved] = arr.splice(fromIndex, 1);
+      arr.splice(toIndex, 0, moved);
+      persist(arr);
+    },
+    set: async (newItems) => {
+      persist([...newItems]);
+    },
+  };
 
-  return [items, actions, loading];
+  return [items, actions, false];
 }
 
 export const useSet = useList;
+
+// useMap returns [entries, { set, remove }, loading] for key-value dictionaries
+export function useMap(name) {
+  const cacheRef = useRef(getStoredValue(name, {}));
+  const [entries, setEntries] = useState(() => ({ ...cacheRef.current }));
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === getStorageKey(name)) {
+        const newObj = e.newValue ? JSON.parse(e.newValue) : {};
+        cacheRef.current = newObj;
+        setEntries({ ...newObj });
+      }
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, [name]);
+
+  const actions = {
+    set: async (key, value) => {
+      cacheRef.current = { ...cacheRef.current, [key]: value };
+      setStoredValue(name, cacheRef.current);
+      setEntries({ ...cacheRef.current });
+    },
+    remove: async (key) => {
+      const next = { ...cacheRef.current };
+      delete next[key];
+      cacheRef.current = next;
+      setStoredValue(name, next);
+      setEntries({ ...next });
+    },
+  };
+
+  return [entries, actions, false];
+}
 `;
 
 export function orbitcodePlugin(): Plugin {
