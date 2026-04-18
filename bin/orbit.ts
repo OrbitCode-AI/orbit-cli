@@ -13,7 +13,7 @@ async function main() {
       await clone(args[1]);
       break;
     case "run":
-      await run();
+      await run(args.slice(1));
       break;
     case "help":
     case "--help":
@@ -36,13 +36,15 @@ function printHelp() {
 orbit - CLI for running OrbitCode examples
 
 Usage:
-  orbit clone <name>   Clone an example from orbitcode-ai/<name>
-  orbit run            Run the current directory as an OrbitCode app
+  orbit clone <name>           Clone an example from orbitcode-ai/<name>
+  orbit run [--entry <file>]   Run the current directory as an OrbitCode app
+                               (default entry: App.tsx)
 
 Examples:
-  orbit clone reveal   # Clone the reveal example
+  orbit clone reveal           # Clone the reveal example
   cd reveal
-  orbit run            # Start the dev server
+  orbit run                    # Start the dev server
+  orbit run --entry MyApp.tsx  # Use a different entry file
 `);
 }
 
@@ -64,18 +66,36 @@ async function clone(name: string | undefined) {
   }
 }
 
-async function run() {
-  // Check for App.tsx entry point
+async function run(runArgs: string[]) {
+  const entry = parseEntry(runArgs);
   const cwd = process.cwd();
-  const appPath = path.join(cwd, "App.tsx");
+  const entryPath = path.join(cwd, entry);
 
-  if (!existsSync(appPath)) {
-    console.error("No App.tsx found in current directory");
+  if (!existsSync(entryPath)) {
+    console.error(`No ${entry} found in current directory`);
     process.exit(1);
   }
 
   const { startServer } = await import("../src/run.js");
-  await startServer(cwd);
+  await startServer(cwd, entry);
+}
+
+function parseEntry(runArgs: string[]): string {
+  for (let i = 0; i < runArgs.length; i++) {
+    const a = runArgs[i];
+    if (a === "--entry" || a === "-e") {
+      const value = runArgs[i + 1];
+      if (!value) {
+        console.error(`${a} requires a filename`);
+        process.exit(1);
+      }
+      return value;
+    }
+    if (a.startsWith("--entry=")) {
+      return a.slice("--entry=".length);
+    }
+  }
+  return "App.tsx";
 }
 
 main().catch((err) => {

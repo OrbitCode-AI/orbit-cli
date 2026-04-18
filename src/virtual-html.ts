@@ -48,12 +48,14 @@ function generateHtml(config: OrbitConfig, importMapJson: string): string {
 </html>`;
 }
 
-const VIRTUAL_ENTRY = `
+function buildVirtualEntry(entry: string): string {
+  return `
 import 'preact/debug';
 import { render, createElement } from 'preact/compat';
-import App from '/App.tsx';
+import App from '/${entry}';
 render(createElement(App), document.getElementById('root'));
 `;
+}
 
 // Shim modules use bare specifiers so Vite resolves them through the
 // same alias/optimization pipeline as all other modules (single instance).
@@ -65,8 +67,9 @@ const SHIM_MAP: Record<string, string> = {
   "jsx-dev-runtime.js": `export * from 'preact/jsx-dev-runtime';`,
 };
 
-export function virtualHtmlPlugin(preactPaths: Record<string, string>): Plugin {
+export function virtualHtmlPlugin(preactPaths: Record<string, string>, entry: string = "App.tsx"): Plugin {
   let root: string;
+  const virtualEntry = buildVirtualEntry(entry);
 
   const importMap = JSON.stringify({
     imports: {
@@ -99,7 +102,7 @@ export function virtualHtmlPlugin(preactPaths: Record<string, string>): Plugin {
 
     load(id) {
       if (id === RESOLVED_ENTRY_ID) {
-        return VIRTUAL_ENTRY;
+        return virtualEntry;
       }
       // Return shim source with bare specifiers - Vite's transform
       // pipeline resolves them through the same aliases/optimization

@@ -18,3 +18,9 @@ orbit run
 ```
 
 Opens http://localhost:5173 with HMR.
+
+By default `orbit run` looks for `App.tsx`. Use `--entry` to point at a different file:
+
+```bash
+orbit run --entry MyApp.tsx
+```

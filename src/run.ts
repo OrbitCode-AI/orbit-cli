@@ -57,7 +57,7 @@ function resolveCssEntry(pkg: string): string | null {
   }
 }
 
-export async function startServer(root: string) {
+export async function startServer(root: string, entry: string = "App.tsx") {
   const preactPaths = {
     "preact": resolveEsm("preact"),
     "preact/compat": resolveEsm("preact/compat"),
@@ -69,7 +69,7 @@ export async function startServer(root: string) {
   };
 
   const plugins: import("vite").PluginOption[] = [
-    virtualHtmlPlugin(preactPaths),
+    virtualHtmlPlugin(preactPaths, entry),
     orbitcodePlugin(),
     preact({ reactAliasesEnabled: false }),
   ];
