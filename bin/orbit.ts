@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 const args = process.argv.slice(2);
@@ -11,6 +12,9 @@ async function main() {
   switch (command) {
     case "clone":
       await clone(args[1]);
+      break;
+    case "init":
+      await init();
       break;
     case "run":
       await run(args.slice(1));
@@ -37,15 +41,70 @@ orbit - CLI for running OrbitCode examples
 
 Usage:
   orbit clone <name>           Clone an example from orbitcode-ai/<name>
+  orbit init                   Create orbitcode.config.json in the current
+                               directory with a stable local projectId
   orbit run [--entry <file>]   Run the current directory as an OrbitCode app
-                               (default entry: App.tsx)
+              [--port <port>]  (default entry: src/main.tsx, src/App.tsx, App.tsx)
 
 Examples:
   orbit clone reveal           # Clone the reveal example
   cd reveal
+  orbit init                   # Create orbitcode.config.json
   orbit run                    # Start the dev server
   orbit run --entry MyApp.tsx  # Use a different entry file
+  orbit run --port 5174        # Pin to a port already in your OAuth origins
 `);
+}
+
+/**
+ * Derive a stable 17-char lowercase-alphanumeric local projectId from
+ * the given seed. Matches the production HMAC-signed pid shape so
+ * downstream code (URL matchers, kernel pid validators) accepts it.
+ *
+ * Local-only: real apps publishing to production should re-mint via
+ * the production /provision flow (browser-based Turnstile + DT cookie)
+ * and overwrite this value. For local development against either
+ * `orbit run` or `make tennis-dev`, a stable hash is enough.
+ */
+function generateLocalPid(seed: string): string {
+  const hex = createHash("sha256").update(seed).digest("hex");
+  return hex.slice(0, 17).toLowerCase();
+}
+
+async function init() {
+  const cwd = process.cwd();
+  const configPath = path.join(cwd, "orbitcode.config.json");
+  let existing: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      existing = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    } catch (e) {
+      console.error(
+        `orbitcode.config.json exists but isn't valid JSON: ${(e as Error).message}`,
+      );
+      process.exit(1);
+    }
+  }
+  if (typeof existing.projectId === "string" && existing.projectId.length > 0) {
+    console.log(
+      `orbitcode.config.json already initialized: projectId=${existing.projectId}`,
+    );
+    console.log(`(at ${configPath})`);
+    return;
+  }
+  const name =
+    typeof existing.name === "string" && existing.name.length > 0
+      ? existing.name
+      : path.basename(cwd);
+  // Seed includes the absolute cwd so two apps named "tennis" in
+  // different directories don't collide on projectId.
+  const projectId = generateLocalPid(`${name}::${cwd}`);
+  const next = { projectId, name, ...existing };
+  writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n");
+  console.log(`Created ${configPath}`);
+  console.log(`  projectId: ${projectId}`);
+  console.log(`  name:      ${name}`);
+  console.log(`Run \`orbit run\` to start the dev server.`);
 }
 
 async function clone(name: string | undefined) {
