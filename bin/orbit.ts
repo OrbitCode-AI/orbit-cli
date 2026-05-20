@@ -67,20 +67,25 @@ async function clone(name: string | undefined) {
 }
 
 async function run(runArgs: string[]) {
-  const entry = parseEntry(runArgs);
+  const explicitEntry = parseEntry(runArgs);
   const cwd = process.cwd();
-  const entryPath = path.join(cwd, entry);
-
-  if (!existsSync(entryPath)) {
-    console.error(`No ${entry} found in current directory`);
-    process.exit(1);
-  }
-
+  // startServer walks up from `cwd` to find orbitcode.config.json and
+  // anchors vite to that directory. Entry resolution happens there too
+  // (so `orbit run --entry src/main.tsx` is interpreted relative to the
+  // workspace root, not the subdirectory we were invoked from).
   const { startServer } = await import("../src/run.js");
-  await startServer(cwd, entry);
+  await startServer(cwd, explicitEntry);
 }
 
-function parseEntry(runArgs: string[]): string {
+/** Candidate entry filenames tried in order when --entry isn't passed. */
+const DEFAULT_ENTRY_CANDIDATES = [
+  "src/main.tsx",
+  "src/main.ts",
+  "src/App.tsx",
+  "App.tsx",
+];
+
+function parseEntry(runArgs: string[]): string | undefined {
   for (let i = 0; i < runArgs.length; i++) {
     const a = runArgs[i];
     if (a === "--entry" || a === "-e") {
@@ -95,8 +100,10 @@ function parseEntry(runArgs: string[]): string {
       return a.slice("--entry=".length);
     }
   }
-  return "App.tsx";
+  return undefined;
 }
+
+export { DEFAULT_ENTRY_CANDIDATES };
 
 main().catch((err) => {
   console.error(err);

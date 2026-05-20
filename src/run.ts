@@ -6,7 +6,36 @@ import { hostFramePlugin, loadConfigOrThrow, OrbitConfigError } from "./virtual-
 import { exec } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+
+/** Candidate entry files tried in order when `orbit run` is invoked
+ * without --entry. Matches the conventions in modern OrbitCode apps:
+ * src/main.tsx (tennis, lab-nav), then ts/tsx variants, then the
+ * legacy single-file App.tsx layout from older examples. */
+const DEFAULT_ENTRY_CANDIDATES = [
+  "src/main.tsx",
+  "src/main.ts",
+  "src/App.tsx",
+  "App.tsx",
+];
+
+function resolveEntry(root: string, requested: string | undefined): string {
+  if (requested !== undefined) {
+    if (!existsSync(path.join(root, requested))) {
+      console.error(`[orbit] entry not found: ${path.join(root, requested)}`);
+      process.exit(1);
+    }
+    return requested;
+  }
+  for (const candidate of DEFAULT_ENTRY_CANDIDATES) {
+    if (existsSync(path.join(root, candidate))) return candidate;
+  }
+  console.error(
+    `[orbit] no entry file found in ${root}. Tried: ${DEFAULT_ENTRY_CANDIDATES.join(", ")}. ` +
+      `Pass --entry <file> to override.`,
+  );
+  process.exit(1);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -96,14 +125,14 @@ function resolveCollabUrl(backendOrigin: string): string {
   return "wss://collab.orbitcode.ai";
 }
 
-export async function startServer(root: string, entry: string = "App.tsx") {
+export async function startServer(start: string, requestedEntry?: string) {
   const backendOrigin = process.env.ORBIT_BACKEND_ORIGIN ?? "https://api.orbitcode.app";
   const backendProxy = buildBackendProxy(backendOrigin);
   const collabUrl = resolveCollabUrl(backendOrigin);
 
   let loaded;
   try {
-    loaded = loadConfigOrThrow(root);
+    loaded = loadConfigOrThrow(start);
   } catch (e) {
     if (e instanceof OrbitConfigError) {
       console.error(`[orbit] ${e.message}`);
@@ -115,7 +144,8 @@ export async function startServer(root: string, entry: string = "App.tsx") {
   // Use the discovered config dir as vite's root so `cd src && orbit
   // run` resolves to the project workspace, not the subdirectory we
   // were invoked from.
-  root = loaded.root;
+  const root = loaded.root;
+  const entry = resolveEntry(root, requestedEntry);
 
   const plugins: import("vite").PluginOption[] = [
     hostFramePlugin({
