@@ -83,9 +83,16 @@ function resolveCssEntry(pkg: string): string | null {
   }
 }
 
+function resolveCollabUrl(backendOrigin: string): string {
+  if (process.env.ORBIT_COLLAB_URL) return process.env.ORBIT_COLLAB_URL;
+  if (backendOrigin.includes("localhost")) return "ws://localhost:1234";
+  return "wss://collab.orbitcode.ai";
+}
+
 export async function startServer(root: string, entry: string = "App.tsx") {
   const backendOrigin = process.env.ORBIT_BACKEND_ORIGIN ?? "https://api.orbitcode.app";
   const backendProxy = buildBackendProxy(backendOrigin);
+  const collabUrl = resolveCollabUrl(backendOrigin);
 
   let config;
   try {
@@ -130,6 +137,13 @@ export async function startServer(root: string, entry: string = "App.tsx") {
     root,
     configFile: false,
     plugins,
+    define: {
+      // @orbitcode/collab/collab-funcs checks `typeof __ORBIT_COLLAB_URL__
+      // === 'string'` at runtime and uses it instead of deriving from
+      // the page origin. Lets the app reach the prod collab server
+      // even when the host page is localhost:5173.
+      __ORBIT_COLLAB_URL__: JSON.stringify(collabUrl),
+    },
     resolve: {
       alias: {
         "@/": root + "/",
@@ -146,6 +160,7 @@ export async function startServer(root: string, entry: string = "App.tsx") {
 
   await server.listen();
   console.log(`[orbit] backend proxy → ${backendOrigin}`);
+  console.log(`[orbit] collab url   → ${collabUrl}`);
   console.log(`[orbit] project: ${config.name} (${config.projectId})`);
   server.printUrls();
 
