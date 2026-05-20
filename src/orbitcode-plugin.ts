@@ -34,17 +34,21 @@ export function orbitcodePlugin(): Plugin {
     name: "orbitcode",
     enforce: "pre",
 
-    async resolveId(id, _importer, options) {
+    async resolveId(id, importer, options) {
       // Resolve known modules from CLI's node_modules (not user project)
       if (KNOWN_MODULES.has(id)) {
         const resolved = await this.resolve(id, cliPackageJson, { ...options, skipSelf: true });
         return resolved ?? null;
       }
 
-      // Redirect unknown bare imports to esm.sh
-      // Use ?external so esm.sh emits bare `react` specifiers that
-      // vite resolves through the same alias above (single React instance).
+      // Bare imports: try to resolve from the user project's node_modules
+      // first. This catches workspace packages (@orbitcode/react via
+      // pnpm symlinks) and anything `npm install`'d locally. Only fall
+      // back to esm.sh when the local resolver can't find it — that's
+      // the case for `three`, `reveal.js`, etc. in trivial examples.
       if (isBareImport(id)) {
+        const local = await this.resolve(id, importer, { ...options, skipSelf: true });
+        if (local) return local;
         return {
           id: `https://esm.sh/${id}?external=react,react-dom,react/jsx-runtime&target=es2022`,
           external: true,
