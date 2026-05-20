@@ -125,7 +125,11 @@ function resolveCollabUrl(backendOrigin: string): string {
   return "wss://collab.orbitcode.ai";
 }
 
-export async function startServer(start: string, requestedEntry?: string) {
+export async function startServer(
+  start: string,
+  requestedEntry?: string,
+  requestedPort?: number,
+) {
   const backendOrigin = process.env.ORBIT_BACKEND_ORIGIN ?? "https://api.orbitcode.app";
   const backendProxy = buildBackendProxy(backendOrigin);
   const collabUrl = resolveCollabUrl(backendOrigin);
@@ -193,6 +197,12 @@ export async function startServer(start: string, requestedEntry?: string) {
       },
     },
     server: {
+      // `--port` (CLI) > config.devPort > vite default (5173). Tennis
+      // and lab-nav pre-orbit-cli ran on specific ports registered in
+      // the Google OAuth client's Authorized JavaScript Origins; using
+      // a different port produces Error 400: origin_mismatch on sign-in.
+      port: requestedPort ?? (typeof config.devPort === "number" ? config.devPort : undefined),
+      strictPort: requestedPort !== undefined || typeof config.devPort === "number",
       proxy: backendProxy,
       fs: {
         allow: [root, cliRoot],

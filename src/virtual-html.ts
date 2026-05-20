@@ -8,6 +8,9 @@ const RESOLVED_ENTRY_ID = "\0" + VIRTUAL_ENTRY_ID;
 interface OrbitConfig {
   projectId?: string;
   name?: string;
+  /** Pin the dev server's port. Useful when the app's Google OAuth
+   * client only authorizes a specific localhost:<port> origin. */
+  devPort?: number;
   icon?: string;
   defaultTheme?: "dark" | "light";
 }

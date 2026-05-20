@@ -68,13 +68,43 @@ async function clone(name: string | undefined) {
 
 async function run(runArgs: string[]) {
   const explicitEntry = parseEntry(runArgs);
+  const explicitPort = parsePort(runArgs);
   const cwd = process.cwd();
   // startServer walks up from `cwd` to find orbitcode.config.json and
   // anchors vite to that directory. Entry resolution happens there too
   // (so `orbit run --entry src/main.tsx` is interpreted relative to the
   // workspace root, not the subdirectory we were invoked from).
   const { startServer } = await import("../src/run.js");
-  await startServer(cwd, explicitEntry);
+  await startServer(cwd, explicitEntry, explicitPort);
+}
+
+function parsePort(runArgs: string[]): number | undefined {
+  for (let i = 0; i < runArgs.length; i++) {
+    const a = runArgs[i];
+    if (a === "--port" || a === "-p") {
+      const value = runArgs[i + 1];
+      if (!value) {
+        console.error(`${a} requires a port number`);
+        process.exit(1);
+      }
+      const n = Number(value);
+      if (!Number.isInteger(n) || n <= 0 || n >= 65536) {
+        console.error(`${a} must be a valid port number, got: ${value}`);
+        process.exit(1);
+      }
+      return n;
+    }
+    if (a.startsWith("--port=")) {
+      const value = a.slice("--port=".length);
+      const n = Number(value);
+      if (!Number.isInteger(n) || n <= 0 || n >= 65536) {
+        console.error(`--port must be a valid port number, got: ${value}`);
+        process.exit(1);
+      }
+      return n;
+    }
+  }
+  return undefined;
 }
 
 /** Candidate entry filenames tried in order when --entry isn't passed. */
