@@ -12,13 +12,6 @@ const RESOLVED_ORBITCODE_ID = "\0orbitcode";
 
 // List of known modules that are bundled or aliased
 const KNOWN_MODULES = new Set([
-  "preact",
-  "preact/hooks",
-  "preact/compat",
-  "preact/jsx-runtime",
-  "preact/jsx-dev-runtime",
-  "preact/debug",
-  "preact/devtools",
   "react",
   "react-dom",
   "react-dom/client",
@@ -26,14 +19,11 @@ const KNOWN_MODULES = new Set([
   "react/jsx-runtime",
   "react/jsx-dev-runtime",
   "orbitcode",
-  // Prefresh HMR packages (used by @preact/preset-vite)
-  "@prefresh/core",
-  "@prefresh/utils",
 ]);
 
 // Virtual orbitcode module implementation (localStorage-based)
 const ORBITCODE_SHIM = `
-import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 function getStorageKey(name) {
   return 'orbitcode:' + name;
