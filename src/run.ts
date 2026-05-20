@@ -34,6 +34,13 @@ const BACKEND_PREFIXES = [
   "/admin",
 ];
 
+// Only paths that actually carry WebSocket upgrades need ws:true.
+// Setting ws:true on every prefix makes node-http-proxy hook into the
+// HTTP server's `upgrade` event broadly, which can starve vite's own
+// HMR WebSocket at `/` — the browser console fills with
+// `WebSocket connection to 'ws://localhost:5173/' failed`.
+const WS_PREFIXES = new Set(["/sync", "/collab"]);
+
 function buildBackendProxy(backendOrigin: string): Record<string, ProxyOptions> {
   const proxy: Record<string, ProxyOptions> = {};
   const secure = backendOrigin.startsWith("https:");
@@ -41,7 +48,7 @@ function buildBackendProxy(backendOrigin: string): Record<string, ProxyOptions> 
     proxy[p] = {
       target: backendOrigin,
       changeOrigin: true,
-      ws: true,
+      ws: WS_PREFIXES.has(p),
       secure,
     };
   }
