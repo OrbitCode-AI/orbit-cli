@@ -2,7 +2,7 @@ import { createServer } from "vite";
 import type { ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react";
 import { orbitcodePlugin } from "./orbitcode-plugin.js";
-import { virtualHtmlPlugin } from "./virtual-html.js";
+import { hostFramePlugin, loadConfigOrThrow, OrbitConfigError } from "./virtual-html.js";
 import { exec } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,8 +87,24 @@ export async function startServer(root: string, entry: string = "App.tsx") {
   const backendOrigin = process.env.ORBIT_BACKEND_ORIGIN ?? "https://api.orbitcode.app";
   const backendProxy = buildBackendProxy(backendOrigin);
 
+  let config;
+  try {
+    config = loadConfigOrThrow(root);
+  } catch (e) {
+    if (e instanceof OrbitConfigError) {
+      console.error(`[orbit] ${e.message}`);
+      process.exit(1);
+    }
+    throw e;
+  }
+
   const plugins: import("vite").PluginOption[] = [
-    virtualHtmlPlugin(entry),
+    hostFramePlugin({
+      projectId: config.projectId,
+      projectName: config.name,
+      backendOrigin,
+      entry,
+    }),
     orbitcodePlugin(),
     react(),
   ];
@@ -130,6 +146,7 @@ export async function startServer(root: string, entry: string = "App.tsx") {
 
   await server.listen();
   console.log(`[orbit] backend proxy → ${backendOrigin}`);
+  console.log(`[orbit] project: ${config.name} (${config.projectId})`);
   server.printUrls();
 
   const url = server.resolvedUrls?.local[0];
