@@ -14,18 +14,46 @@ interface OrbitConfig {
 
 export class OrbitConfigError extends Error {}
 
+const CREATE_HINT =
+  'Create one with: {"projectId":"<17-char pid>","name":"<app name>"}.';
+
 /**
- * Load orbitcode.config.json from the workspace root. Errors out if
- * missing or projectId is absent — orbit run only works against a
- * provisioned project (or a stable dev pid the user pasted).
+ * Walk up from `start` looking for orbitcode.config.json. Returns the
+ * directory containing it. This is how `orbit run` finds the project
+ * root regardless of which subdirectory the user invoked from — same
+ * pattern as `npm`/`git`/`cargo` walking up to find package.json /
+ * .git / Cargo.toml.
  */
-export function loadConfigOrThrow(root: string): OrbitConfig & { projectId: string; name: string } {
-  const configPath = path.join(root, "orbitcode.config.json");
-  if (!existsSync(configPath)) {
+function findConfigRoot(start: string): string | null {
+  let dir = path.resolve(start);
+  while (true) {
+    if (existsSync(path.join(dir, "orbitcode.config.json"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+export interface LoadedConfig {
+  config: OrbitConfig & { projectId: string; name: string };
+  /** Directory containing the discovered orbitcode.config.json. */
+  root: string;
+}
+
+/**
+ * Load orbitcode.config.json by walking up from `start`. Errors out if
+ * the file isn't found anywhere up the tree or `projectId` is absent
+ * — orbit run only works against a provisioned project (or a stable
+ * dev pid the user pasted).
+ */
+export function loadConfigOrThrow(start: string): LoadedConfig {
+  const root = findConfigRoot(start);
+  if (root === null) {
     throw new OrbitConfigError(
-      `orbitcode.config.json missing in ${root}. Run \`orbit init\` first.`,
+      `orbitcode.config.json not found in ${start} or any parent directory. ${CREATE_HINT}`,
     );
   }
+  const configPath = path.join(root, "orbitcode.config.json");
   let parsed: OrbitConfig;
   try {
     parsed = JSON.parse(readFileSync(configPath, "utf-8"));
@@ -36,13 +64,16 @@ export function loadConfigOrThrow(root: string): OrbitConfig & { projectId: stri
   }
   if (!parsed.projectId) {
     throw new OrbitConfigError(
-      `orbitcode.config.json in ${root} has no "projectId". Run \`orbit init\` first.`,
+      `orbitcode.config.json in ${root} has no "projectId". ${CREATE_HINT}`,
     );
   }
   return {
-    ...parsed,
-    projectId: parsed.projectId,
-    name: parsed.name ?? "OrbitCode App",
+    config: {
+      ...parsed,
+      projectId: parsed.projectId,
+      name: parsed.name ?? "OrbitCode App",
+    },
+    root,
   };
 }
 

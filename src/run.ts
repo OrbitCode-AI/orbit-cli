@@ -101,9 +101,9 @@ export async function startServer(root: string, entry: string = "App.tsx") {
   const backendProxy = buildBackendProxy(backendOrigin);
   const collabUrl = resolveCollabUrl(backendOrigin);
 
-  let config;
+  let loaded;
   try {
-    config = loadConfigOrThrow(root);
+    loaded = loadConfigOrThrow(root);
   } catch (e) {
     if (e instanceof OrbitConfigError) {
       console.error(`[orbit] ${e.message}`);
@@ -111,6 +111,11 @@ export async function startServer(root: string, entry: string = "App.tsx") {
     }
     throw e;
   }
+  const config = loaded.config;
+  // Use the discovered config dir as vite's root so `cd src && orbit
+  // run` resolves to the project workspace, not the subdirectory we
+  // were invoked from.
+  root = loaded.root;
 
   const plugins: import("vite").PluginOption[] = [
     hostFramePlugin({
