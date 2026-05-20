@@ -1,4 +1,5 @@
 import { createServer } from "vite";
+import type { ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react";
 import { orbitcodePlugin } from "./orbitcode-plugin.js";
 import { virtualHtmlPlugin } from "./virtual-html.js";
@@ -10,6 +11,42 @@ import { readFileSync, readdirSync } from "node:fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const cliRoot = path.resolve(__dirname, "../..");
+
+// Every URL prefix the production hosting worker serves. Anything under
+// these paths gets proxied through vite to the backend so the browser
+// hits localhost:5173 (first-party cookies) while the actual response
+// comes from api.orbitcode.app (or a local wrangler override).
+const BACKEND_PREFIXES = [
+  "/provision",
+  "/auth",
+  "/room",
+  "/cas",
+  "/sync",
+  "/publish",
+  "/secrets",
+  "/collab",
+  "/favorites",
+  "/templates",
+  "/billing",
+  "/stats",
+  "/discover",
+  "/dev",
+  "/admin",
+];
+
+function buildBackendProxy(backendOrigin: string): Record<string, ProxyOptions> {
+  const proxy: Record<string, ProxyOptions> = {};
+  const secure = backendOrigin.startsWith("https:");
+  for (const p of BACKEND_PREFIXES) {
+    proxy[p] = {
+      target: backendOrigin,
+      changeOrigin: true,
+      ws: true,
+      secure,
+    };
+  }
+  return proxy;
+}
 
 /** Scan CSS files at the project root for bare @import specifiers (npm packages). */
 function detectCssImports(root: string): string[] {
@@ -47,6 +84,9 @@ function resolveCssEntry(pkg: string): string | null {
 }
 
 export async function startServer(root: string, entry: string = "App.tsx") {
+  const backendOrigin = process.env.ORBIT_BACKEND_ORIGIN ?? "https://api.orbitcode.app";
+  const backendProxy = buildBackendProxy(backendOrigin);
+
   const plugins: import("vite").PluginOption[] = [
     virtualHtmlPlugin(entry),
     orbitcodePlugin(),
@@ -81,6 +121,7 @@ export async function startServer(root: string, entry: string = "App.tsx") {
       },
     },
     server: {
+      proxy: backendProxy,
       fs: {
         allow: [root, cliRoot],
       },
@@ -88,6 +129,7 @@ export async function startServer(root: string, entry: string = "App.tsx") {
   });
 
   await server.listen();
+  console.log(`[orbit] backend proxy → ${backendOrigin}`);
   server.printUrls();
 
   const url = server.resolvedUrls?.local[0];
