@@ -41,11 +41,18 @@ export function orbitcodePlugin(): Plugin {
         return resolved ?? null;
       }
 
-      // Bare imports: try to resolve from the user project's node_modules
-      // first. This catches workspace packages (@orbitcode/react via
-      // pnpm symlinks) and anything `npm install`'d locally. Only fall
-      // back to esm.sh when the local resolver can't find it — that's
-      // the case for `three`, `reveal.js`, etc. in trivial examples.
+      // @orbitcode/* are workspace packages that pnpm symlinks into the
+      // user project's node_modules. Defer to vite's default resolver
+      // (return null = "not mine"). NEVER fall back to esm.sh — those
+      // packages aren't published, esm.sh always 404s.
+      if (id.startsWith('@orbitcode/')) {
+        return null;
+      }
+
+      // Other bare imports: try local resolve, fall back to esm.sh for
+      // unbundled third-party libs (three, reveal.js, etc.). The
+      // `?external=react,...` makes esm.sh emit bare specifiers that
+      // resolve back through our KNOWN_MODULES alias above.
       if (isBareImport(id)) {
         const local = await this.resolve(id, importer, { ...options, skipSelf: true });
         if (local) return local;
