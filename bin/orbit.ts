@@ -19,6 +19,9 @@ async function main() {
     case "run":
       await run(args.slice(1));
       break;
+    case "publish":
+      await publish(args.slice(1));
+      break;
     case "help":
     case "--help":
     case "-h":
@@ -40,19 +43,25 @@ function printHelp() {
 orbit - CLI for running OrbitCode examples
 
 Usage:
-  orbit clone <name>           Clone an example from orbitcode-ai/<name>
-  orbit init                   Create orbitcode.config.json in the current
-                               directory with a stable local projectId
-  orbit run [--entry <file>]   Run the current directory as an OrbitCode app
-              [--port <port>]  (default entry: src/main.tsx, src/App.tsx, App.tsx)
+  orbit clone <name>             Clone an example from orbitcode-ai/<name>
+  orbit init                     Create orbitcode.config.json in the current
+                                 directory with a stable local projectId
+  orbit run [--entry <file>]     Run the current directory as an OrbitCode app
+              [--port <port>]    (default entry: src/main.tsx, src/App.tsx, App.tsx)
+  orbit publish [--name <name>]  Build + upload the current project to the
+                [--prod]         publish worker. Default backend is staging
+                [--api <url>]    (api.llama.space); --prod uses api.myth.work.
 
 Examples:
-  orbit clone reveal           # Clone the reveal example
+  orbit clone reveal             # Clone the reveal example
   cd reveal
-  orbit init                   # Create orbitcode.config.json
-  orbit run                    # Start the dev server
-  orbit run --entry MyApp.tsx  # Use a different entry file
-  orbit run --port 5174        # Pin to a port already in your OAuth origins
+  orbit init                     # Create orbitcode.config.json
+  orbit run                      # Start the dev server
+  orbit run --entry MyApp.tsx    # Use a different entry file
+  orbit run --port 5174          # Pin to a port already in your OAuth origins
+  orbit publish                  # Publish to staging, canonical URL only
+  orbit publish --name my-app    # Publish with alias my-app.llama.space
+  orbit publish --name my-app --prod   # Publish to api.myth.work
 `);
 }
 
@@ -135,6 +144,59 @@ async function run(runArgs: string[]) {
   // workspace root, not the subdirectory we were invoked from).
   const { startServer } = await import("../src/run.js");
   await startServer(cwd, explicitEntry, explicitPort);
+}
+
+async function publish(pubArgs: string[]) {
+  const shortName = parseStringFlag(pubArgs, "--name");
+  const apiUrl = parseStringFlag(pubArgs, "--api");
+  const prod = pubArgs.includes("--prod");
+  const explicitEntry = parseEntry(pubArgs);
+  const { publishCommand } = await import("../src/publish/index.js");
+  const { PublishError } = await import("../src/publish/client.js");
+  const { HandshakeTimeoutError } = await import("../src/publish/auth-handshake.js");
+  try {
+    await publishCommand({
+      cwd: process.cwd(),
+      shortName,
+      prod,
+      apiUrl,
+      entry: explicitEntry,
+    });
+  } catch (err) {
+    if (err instanceof PublishError) {
+      console.error(`[orbit] ${err.message}`);
+      process.exit(1);
+    }
+    if (err instanceof HandshakeTimeoutError) {
+      console.error(`[orbit] ${err.message}`);
+      console.error("[orbit] No sign-in received. Re-run `orbit publish`.");
+      process.exit(1);
+    }
+    // Fall-through for OrbitConfigError + anything else.
+    console.error(`[orbit] ${(err as Error).message ?? err}`);
+    process.exit(1);
+  }
+}
+
+/** Generic `--flag <value>` / `--flag=value` parser. Mutually exclusive
+ *  from --entry / --port to keep the parser shape uniform. */
+function parseStringFlag(argv: string[], flag: string): string | undefined {
+  const eq = flag + "=";
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === flag) {
+      const value = argv[i + 1];
+      if (!value) {
+        console.error(`${flag} requires a value`);
+        process.exit(1);
+      }
+      return value;
+    }
+    if (a.startsWith(eq)) {
+      return a.slice(eq.length);
+    }
+  }
+  return undefined;
 }
 
 function parsePort(runArgs: string[]): number | undefined {
